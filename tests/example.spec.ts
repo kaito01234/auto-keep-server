@@ -1,18 +1,17 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test'
 
 test('has title', async ({ page }) => {
-  await page.goto('https://playwright.dev/');
+  const account_id = process.env.ACCOUNT_ID ?? ''
+  const password = process.env.PASSWORD ?? ''
 
-  // Expect a title "to contain" a substring.
-  await expect(page).toHaveTitle(/Playwright/);
-});
-
-test('get started link', async ({ page }) => {
-  await page.goto('https://playwright.dev/');
-
-  // Click the get started link.
-  await page.getByRole('link', { name: 'Get started' }).click();
-
-  // Expects page to have a heading with the name of Installation.
-  await expect(page.getByRole('heading', { name: 'Installation' })).toBeVisible();
-});
+  await page.goto('https://secure.xserver.ne.jp/xapanel/login/xmgame/')
+  await page.getByRole('textbox', { name: 'XServerアカウントID または メールアドレス' }).fill(account_id)
+  await page.locator('#user_password').fill(password)
+  await page.getByRole('button', { name: 'ログインする' }).click()
+  await page.getByRole('link', { name: 'ゲーム管理' }).click()
+  await page.getByRole('link', { name: 'アップグレード・期限延長' }).click()
+  await page.getByRole('link', { name: '期限を延長する' }).click()
+  await page.getByRole('combobox').selectOption('72')
+  await page.getByRole('button', { name: '確認画面に進む' }).click()
+  await page.getByRole('button', { name: '期限を延長する' }).click()
+})
