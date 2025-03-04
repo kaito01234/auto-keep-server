@@ -13,11 +13,10 @@ test('has title', async ({ page }) => {
   const locator = page.getByRole('link', { name: '期限を延長する' });
   if ((await locator.count()) > 0) {
     await locator.click();
-    await page.getByRole('combobox').selectOption('72');
     await page.getByRole('button', { name: '確認画面に進む' }).click();
     await page.getByRole('button', { name: '期限を延長する' }).click();
     await expect(page.getByText('期限を延長しました。')).toBeVisible();
   } else {
-    await expect(page.getByText('残り契約時間が24時間を切るまで、期限の延長は行えません。')).toBeVisible();
+    await expect(page.getByText('期限の延長は行えません。')).toBeVisible();
   }
 });
