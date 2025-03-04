@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('has title', async ({ page }) => {
+test('extend', async ({ page }) => {
   const account_id = process.env.ACCOUNT_ID ?? '';
   const password = process.env.PASSWORD ?? '';
 
