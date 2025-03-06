@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "playwright": "playwright test",
-    "playwright:ui": "playwright test --ui"
+    "playwright:ui": "playwright test --ui",
+    "playwright:report": "playwright show-report --host 0.0.0.0"
   },
   "keywords": [],
   "author": "",
