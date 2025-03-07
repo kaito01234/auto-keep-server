@@ -10,6 +10,7 @@ test('extend', async ({ page }) => {
   await page.getByRole('button', { name: 'ログインする' }).click();
   await page.getByRole('link', { name: 'ゲーム管理' }).click();
   await page.getByRole('link', { name: 'アップグレード・期限延長' }).click();
+  await page.waitForLoadState('domcontentloaded');
   const locator = page.getByRole('link', { name: '期限を延長する' });
   if ((await locator.count()) > 0) {
     await locator.click();
