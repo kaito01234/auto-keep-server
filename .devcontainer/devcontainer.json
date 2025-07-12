@@ -17,7 +17,8 @@
       "extensions": [
         "mhutchie.git-graph",
         "ms-playwright.playwright",
-        "esbenp.prettier-vscode"
+        "esbenp.prettier-vscode",
+        "ms-azuretools.vscode-docker"
       ]
     }
   }

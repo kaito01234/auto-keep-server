@@ -1,14 +1,19 @@
-name: Playwright Tests
+name: Auto Extension
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 15 * * *'
+
 permissions:
   contents: write
+  issues: write
+
 jobs:
-  test:
+  extend:
     timeout-minutes: 60
     runs-on: ubuntu-latest
+    outputs:
+      next_run_minutes: ${{ steps.parse_output.outputs.next_run_minutes }}
+      extend_status: ${{ steps.parse_output.outputs.extend_status }}
+      next_run_time: ${{ steps.parse_output.outputs.next_run_time }}
     steps:
       - uses: actions/checkout@v4
 
@@ -19,14 +24,72 @@ jobs:
       - name: Install dependencies
         run: npm install -g pnpm && pnpm install
 
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./package.json').devDependencies['@playwright/test']")" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
       - name: Install Playwright Browsers
-        run: pnpm exec playwright install --with-deps
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Install system dependencies only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
 
       - name: Run Playwright tests
-        run: pnpm exec playwright test
+        run: |
+          # Run tests and capture output
+          pnpm exec playwright test 2>&1 | tee test-output.log
         env:
           ACCOUNT_ID: ${{ secrets.ACCOUNT_ID }}
           PASSWORD: ${{ secrets.PASSWORD }}
+      
+      - name: Parse test output
+        id: parse_output
+        if: always()
+        run: |
+          # Extract information from test output
+          if [ -f test-output.log ]; then
+            NEXT_RUN_MINUTES=$(grep "NEXT_RUN_MINUTES=" test-output.log | cut -d'=' -f2 | tail -1)
+            EXTEND_STATUS=$(grep "EXTEND_STATUS=" test-output.log | cut -d'=' -f2 | tail -1)
+            NEXT_RUN_TIME=$(grep "NEXT_RUN_TIME=" test-output.log | cut -d'=' -f2 | tail -1)
+            
+            # Set default values
+            NEXT_RUN_MINUTES=${NEXT_RUN_MINUTES:-60}
+            EXTEND_STATUS=${EXTEND_STATUS:-error}
+            
+            echo "next_run_minutes=$NEXT_RUN_MINUTES" >> $GITHUB_OUTPUT
+            echo "extend_status=$EXTEND_STATUS" >> $GITHUB_OUTPUT
+            echo "next_run_time=$NEXT_RUN_TIME" >> $GITHUB_OUTPUT
+            
+            # Output to summary
+            echo "## 🔄 Execution Result" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "$EXTEND_STATUS" = "success" ]; then
+              echo "✅ **Extension successful**" >> $GITHUB_STEP_SUMMARY
+              echo "🕒 Next run: in $NEXT_RUN_MINUTES minutes" >> $GITHUB_STEP_SUMMARY
+            elif [ "$EXTEND_STATUS" = "waiting" ]; then
+              echo "⏳ **Not yet available**" >> $GITHUB_STEP_SUMMARY
+              echo "🕒 Next run: in $NEXT_RUN_MINUTES minutes" >> $GITHUB_STEP_SUMMARY
+              if [ -n "$NEXT_RUN_TIME" ]; then
+                echo "📅 Scheduled time: $NEXT_RUN_TIME" >> $GITHUB_STEP_SUMMARY
+              fi
+            else
+              echo "❌ **Error occurred**" >> $GITHUB_STEP_SUMMARY
+              echo "🕒 Next run: in $NEXT_RUN_MINUTES minutes" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "next_run_minutes=60" >> $GITHUB_OUTPUT
+            echo "extend_status=error" >> $GITHUB_OUTPUT
+          fi
 
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
@@ -35,52 +98,97 @@ jobs:
           path: playwright-report/
           retention-days: 30
 
+  create_scheduled_task:
+    needs: extend
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create task issue for next run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs').promises;
+            const delayMinutes = parseInt('${{ needs.extend.outputs.next_run_minutes }}' || '60');
+            const extendStatus = '${{ needs.extend.outputs.extend_status }}' || 'error';
+            const nextRunTimeStr = '${{ needs.extend.outputs.next_run_time }}';
+            
+            // Calculate next execution time
+            let nextRunTime;
+            if (nextRunTimeStr) {
+              nextRunTime = new Date(nextRunTimeStr);
+            } else {
+              nextRunTime = new Date(Date.now() + delayMinutes * 60 * 1000);
+            }
+            
+            // Emoji and status text based on result
+            let emoji, statusText;
+            switch (extendStatus) {
+              case 'success':
+                emoji = '✅';
+                statusText = 'Extension successful';
+                break;
+              case 'waiting':
+                emoji = '⏳';
+                statusText = 'Not yet available';
+                break;
+              default:
+                emoji = '❌';
+                statusText = 'Error';
+            }
+            
+            // Read GitHub Issue template file
+            const templateFile = await fs.readFile('.github/ISSUE_TEMPLATE/scheduled.md', 'utf8');
+            
+            // Remove YAML front matter to get body only
+            const template = templateFile.replace(/^---[\s\S]*?---\n\n/, '');
+            
+            // Replace placeholders
+            const issueBody = template
+              .replace('{{EMOJI}}', emoji)
+              .replace('{{STATUS_TEXT}}', statusText)
+              .replace('{{SCHEDULED_TIME}}', nextRunTime.toLocaleString('sv-SE', { timeZone: 'Asia/Tokyo' }).replace(' ', 'T') + '+09:00')
+              .replace('{{DELAY_MINUTES}}', delayMinutes)
+              .replace('{{ACTION_URL}}', `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`)
+              .replace('{{WORKFLOWS_URL}}', `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions`)
+              .replace('{{WORKFLOW_FILE}}', 'playwright.yml');
+            
+            // Create issue
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Scheduled] Extension - ${nextRunTime.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })} JST`,
+              body: issueBody,
+              labels: ['scheduled', 'automated']
+            });
+            
+            console.log(`✅ Created scheduled task: #${issue.data.number}`);
+            core.notice(`Scheduled next execution in ${delayMinutes} minutes (Issue #${issue.data.number})`);
+
   publish_report:
-    needs: [test]
-    if: "success() || needs.test.result == 'failure'"
+    needs: [extend]
+    if: success() || needs.extend.result == 'failure'
     runs-on: ubuntu-latest
     continue-on-error: true
-    env:
-      HTML_REPORT_URL_PATH: reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}
     steps:
-      - name: Checkout GitHub Pages Branch
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-
-      - name: Set Git User
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Download zipped HTML report
+      - name: Download HTML report
         uses: actions/download-artifact@v4
         with:
           name: playwright-report
-          path: ${{ env.HTML_REPORT_URL_PATH }}
+          path: playwright-report
 
-      - name: Push HTML Report
-        timeout-minutes: 3
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./playwright-report
+          destination_dir: reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}
+          commit_message: "Deploy Playwright report for run ${{ github.run_id }} (attempt ${{ github.run_attempt }})"
+
+      - name: Output Report URL
         run: |
-          git add .
-          git commit -m "workflow: add HTML report for run-id ${{ github.run_id }} (attempt:  ${{ github.run_attempt }})"
-
-          while true; do
-            git pull --rebase
-            if [ $? -ne 0 ]; then
-              echo "Failed to rebase. Please review manually."
-              exit 1
-            fi
-
-            git push
-            if [ $? -eq 0 ]; then
-              echo "Successfully pushed HTML report to repo."
-              exit 0
-            fi
-          done
-
-      - name: Output Report URL as Worfklow Annotation
-        run: |
-          FULL_HTML_REPORT_URL=https://kaito01234.github.io/auto-keep-xserver/$HTML_REPORT_URL_PATH
-
-          echo "::notice title=📋 Published Playwright Test Report::$FULL_HTML_REPORT_URL"
+          REPORT_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/${{ github.ref_name }}/${{ github.run_id }}/${{ github.run_attempt }}"
+          echo "::notice title=📋 Published Playwright Test Report::$REPORT_URL"

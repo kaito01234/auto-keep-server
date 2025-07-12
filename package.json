@@ -6,7 +6,8 @@
   "scripts": {
     "playwright": "playwright test",
     "playwright:ui": "playwright test --ui",
-    "playwright:report": "playwright show-report --host 0.0.0.0"
+    "playwright:report": "playwright show-report --host 0.0.0.0",
+    "prettier": "prettier --write '**/*.{js,ts}'"
   },
   "keywords": [],
   "author": "",
