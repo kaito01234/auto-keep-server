@@ -21,8 +21,8 @@ test('extend', async ({ page }) => {
     await page.getByRole('button', { name: '期限を延長する' }).click();
     await expect(page.getByText('期限を延長しました。')).toBeVisible();
 
-    // 3時間後に次回実行
-    nextRunTime = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    // 7時間後に次回実行
+    nextRunTime = new Date(Date.now() + 7 * 60 * 60 * 1000);
     console.log('NEXT_RUN_TIME=' + nextRunTime.toISOString());
     console.log('NEXT_RUN_MINUTES=180');
     console.log('EXTEND_STATUS=success');
