@@ -24,7 +24,7 @@ test('extend', async ({ page }) => {
     // 7時間後に次回実行
     nextRunTime = new Date(Date.now() + 7 * 60 * 60 * 1000);
     console.log('NEXT_RUN_TIME=' + nextRunTime.toISOString());
-    console.log('NEXT_RUN_MINUTES=180');
+    console.log('NEXT_RUN_MINUTES=420');
     console.log('EXTEND_STATUS=success');
   } else {
     // 期限延長不可の場合
